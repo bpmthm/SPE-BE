@@ -2,88 +2,57 @@
 
 namespace App\Controllers\Api;
 
-use CodeIgniter\HTTP\ResponseInterface;
 use CodeIgniter\RESTful\ResourceController;
+use App\Models\SupplierModel;
 
 class Supplier extends ResourceController
 {
-    /**
-     * Return an array of resource objects, themselves in array format.
-     *
-     * @return ResponseInterface
-     */
+    protected $format = 'json';
+
+    // Munculin 42 Vendor buat Dropdown di FE
     public function index()
     {
-        $model = new \App\Models\SupplierModel();
+        $model = new SupplierModel();
         $data = $model->findAll();
-        return $this->response->setJSON($data);
+        return $this->respond($data);
     }
 
-    /**
-     * Return the properties of a resource object.
-     *
-     * @param int|string|null $id
-     *
-     * @return ResponseInterface
-     */
-    public function show($id = null)
+    // Fungsi "Pinter" buat simpen data per divisi (UPSERT)
+    public function savePenilaian()
     {
-        //
-    }
+        $db = \Config\Database::connect();
+        $builder = $db->table('t_penilaian');
 
-    /**
-     * Return a new resource object, with default properties.
-     *
-     * @return ResponseInterface
-     */
-    public function new()
-    {
-        //
-    }
+        $supplier_id = $this->request->getPost('supplier_id');
+        $periode     = $this->request->getPost('periode'); // Format: 2026-04
+        $divisi      = $this->request->getPost('divisi');  // 'QC', 'PPIC', 'PCH', atau 'HSE'
+        
+        // 1. Ambil data input mentah
+        $val = $this->request->getPost('value');
+        $updateData = ['updated_at' => date('Y-m-d H:i:s')];
 
-    /**
-     * Create a new resource object, from "posted" parameters.
-     *
-     * @return ResponseInterface
-     */
-    public function create()
-    {
-        //
-    }
+        // 2. Logic Itung Skor Otomatis sesuai standar Si Ibu
+        if ($divisi == 'QC') {
+            $updateData['qc_ng_percent'] = $val;
+            $updateData['qc_score'] = ($val < 0.5) ? 30 : (($val < 1.0) ? 15 : 10);
+        } 
+        elseif ($divisi == 'PPIC') {
+            $updateData['ppic_ot_percent'] = $val;
+            $updateData['ppic_score'] = ($val >= 90) ? 30 : (($val >= 71) ? 15 : 10);
+        }
+        // ... (lo bisa tambahin buat PCH & HSE di sini)
 
-    /**
-     * Return the editable properties of a resource object.
-     *
-     * @param int|string|null $id
-     *
-     * @return ResponseInterface
-     */
-    public function edit($id = null)
-    {
-        //
-    }
+        // 3. Proses UPSERT (Update if exists, else Insert)
+        $existing = $builder->where(['supplier_id' => $supplier_id, 'periode' => $periode])->get()->getRow();
 
-    /**
-     * Add or update a model resource, from "posted" properties.
-     *
-     * @param int|string|null $id
-     *
-     * @return ResponseInterface
-     */
-    public function update($id = null)
-    {
-        //
-    }
-
-    /**
-     * Delete the designated resource object from the model.
-     *
-     * @param int|string|null $id
-     *
-     * @return ResponseInterface
-     */
-    public function delete($id = null)
-    {
-        //
+        if ($existing) {
+            $builder->where('id', $existing->id)->update($updateData);
+            return $this->respondUpdated(['message' => "Data $divisi Berhasil di-Update, Pi!"]);
+        } else {
+            $updateData['supplier_id'] = $supplier_id;
+            $updateData['periode']     = $periode;
+            $builder->insert($updateData);
+            return $this->respondCreated(['message' => "Data $divisi Baru Berhasil Disimpan!"]);
+        }
     }
 }

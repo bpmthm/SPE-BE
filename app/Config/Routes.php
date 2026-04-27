@@ -8,10 +8,21 @@ use CodeIgniter\Router\RouteCollection;
 $routes->get('/', 'Home::index');
 
 // API Routes
-$routes->group('api', static function ($routes) {
+$routes->group('api', ['namespace' => 'App\Controllers\Api'], static function ($routes) {
+    // Custom endpoints untuk dashboard & heatmap (must come before resource routes)
+    $routes->get('penilaian/summary/dashboard', 'Penilaian::dashboardSummary');
+    $routes->get('penilaian/heatmap/data', 'Penilaian::heatmapData');
+    $routes->get('penilaian/top-performers', 'Penilaian::topPerformers');
+
     // Supplier Resource
     $routes->resource('supplier', [
-        'controller' => 'Api\Supplier',
+        'controller' => 'Supplier',
+        'except'     => ['new', 'edit']
+    ]);
+
+    // Penilaian Resource
+    $routes->resource('penilaian', [
+        'controller' => 'Penilaian',
         'except'     => ['new', 'edit']
     ]);
 });
