@@ -4,55 +4,47 @@ namespace App\Controllers\Api;
 
 use CodeIgniter\RESTful\ResourceController;
 use App\Models\SupplierModel;
+use App\Models\PenilaianModel;
 
 class Supplier extends ResourceController
 {
     protected $format = 'json';
 
-    // Munculin 42 Vendor buat Dropdown di FE
     public function index()
     {
         $model = new SupplierModel();
-        $data = $model->findAll();
-        return $this->respond($data);
+        return $this->respond($model->findAll());
     }
 
-    // Fungsi "Pinter" buat simpen data per divisi (UPSERT)
     public function savePenilaian()
     {
-        $db = \Config\Database::connect();
-        $builder = $db->table('t_penilaian');
-
-        $supplier_id = $this->request->getPost('supplier_id');
-        $periode     = $this->request->getPost('periode'); // Format: 2026-04
-        $divisi      = $this->request->getPost('divisi');  // 'QC', 'PPIC', 'PCH', atau 'HSE'
+        $model = new PenilaianModel();
         
-        // 1. Ambil data input mentah
-        $val = $this->request->getPost('value');
-        $updateData = ['updated_at' => date('Y-m-d H:i:s')];
+        $supplier_id = $this->request->getPost('supplier_id');
+        $periode     = $this->request->getPost('periode');
+        $divisi      = $this->request->getPost('divisi');
+        $val         = $this->request->getPost('value');
 
-        // 2. Logic Itung Skor Otomatis sesuai standar Si Ibu
-        if ($divisi == 'QC') {
-            $updateData['qc_ng_percent'] = $val;
-            $updateData['qc_score'] = ($val < 0.5) ? 30 : (($val < 1.0) ? 15 : 10);
-        } 
-        elseif ($divisi == 'PPIC') {
-            $updateData['ppic_ot_percent'] = $val;
-            $updateData['ppic_score'] = ($val >= 90) ? 30 : (($val >= 71) ? 15 : 10);
-        }
-        // ... (lo bisa tambahin buat PCH & HSE di sini)
+        // Cari apakah baris periode ini sudah ada?
+        $existing = $model->where(['supplier_id' => $supplier_id, 'periode' => $periode])->first();
 
-        // 3. Proses UPSERT (Update if exists, else Insert)
-        $existing = $builder->where(['supplier_id' => $supplier_id, 'periode' => $periode])->get()->getRow();
+        $saveData = [
+            'supplier_id' => $supplier_id,
+            'periode'     => $periode,
+        ];
+
+        // Mapping input ke kolom yang bener
+        if ($divisi == 'QC') $saveData['qc_ng_percent'] = $val;
+        if ($divisi == 'PPIC') $saveData['ppic_ot_percent'] = $val;
 
         if ($existing) {
-            $builder->where('id', $existing->id)->update($updateData);
-            return $this->respondUpdated(['message' => "Data $divisi Berhasil di-Update, Pi!"]);
+            $model->update($existing['id'], $saveData);
+            $msg = "Data $divisi berhasil diupdate!";
         } else {
-            $updateData['supplier_id'] = $supplier_id;
-            $updateData['periode']     = $periode;
-            $builder->insert($updateData);
-            return $this->respondCreated(['message' => "Data $divisi Baru Berhasil Disimpan!"]);
+            $model->insert($saveData);
+            $msg = "Data $divisi baru berhasil disimpan!";
         }
+
+        return $this->respond(['status' => 'success', 'message' => $msg]);
     }
 }

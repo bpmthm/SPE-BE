@@ -13,6 +13,9 @@ $routes->group('api', ['namespace' => 'App\Controllers\Api'], static function ($
     $routes->get('penilaian/summary/dashboard', 'Penilaian::dashboardSummary');
     $routes->get('penilaian/heatmap/data', 'Penilaian::heatmapData');
     $routes->get('penilaian/top-performers', 'Penilaian::topPerformers');
+    
+    $routes->post('penilaian/upload-ppic', 'Api\Penilaian::uploadPpic');
+    $routes->post('penilaian/upsert', 'Api\Penilaian::upsert');
 
     // Supplier Resource
     $routes->resource('supplier', [

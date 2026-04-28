@@ -2,7 +2,6 @@
 
 namespace App\Controllers\Api;
 
-use CodeIgniter\HTTP\ResponseInterface;
 use CodeIgniter\RESTful\ResourceController;
 
 class Penilaian extends ResourceController
@@ -10,227 +9,220 @@ class Penilaian extends ResourceController
     protected $modelName = 'App\Models\PenilaianModel';
     protected $format    = 'json';
 
-    /**
-     * Return an array of resource objects (dengan filter optional)
-     * GET /api/penilaian
-     * GET /api/penilaian?supplier_id=1
-     * GET /api/penilaian?periode=2026-04
-     */
+    // GET /api/penilaian (Daftar semua dengan filter)
     public function index()
     {
         $supplier_id = $this->request->getVar('supplier_id');
         $periode = $this->request->getVar('periode');
 
         $query = $this->model;
+        if ($supplier_id) $query = $query->where('supplier_id', $supplier_id);
+        if ($periode) $query = $query->where('periode', $periode);
 
-        // Filter by supplier_id jika ada
-        if ($supplier_id) {
-            $query = $query->where('supplier_id', $supplier_id);
-        }
-
-        // Filter by periode jika ada
-        if ($periode) {
-            $query = $query->where('periode', $periode);
-        }
-
-        $data = $query->orderBy('periode', 'DESC')->findAll();
-        return $this->respond($data);
+        return $this->respond($query->orderBy('periode', 'DESC')->findAll());
     }
 
-    /**
-     * Return the properties of a resource object (detail 1 penilaian)
-     * GET /api/penilaian/:id
-     */
-    public function show($id = null)
-    {
-        if (!$id) {
-            return $this->fail('ID penilaian tidak ditemukan', 400);
-        }
-
-        $data = $this->model->find($id);
-
-        if (!$data) {
-            return $this->failNotFound('Penilaian tidak ditemukan');
-        }
-
-        return $this->respond($data);
-    }
-
-    /**
-     * Create a new resource (UPSERT logic)
-     * POST /api/penilaian
-     * 
-     * Body example:
-     * {
-     *   "supplier_id": 1,
-     *   "periode": "2026-04",
-     *   "qc_ng_percent": 0.5,
-     *   "ppic_ot_percent": 92.5,
-     *   "pch_harga": "BAIK",
-     *   "pch_moq": "CUKUP",
-     *   "pch_top": "BAIK",
-     *   "pch_pelayanan": "BAIK",
-     *   "hse_uji_emisi": "BAIK",
-     *   "hse_apd": "BAIK"
-     * }
-     */
+    // POST /api/penilaian (The Smart UPSERT)
     public function create()
     {
         $data = $this->request->getJSON(true);
 
-        // Validasi required fields
-        if (!$data['supplier_id'] || !$data['periode']) {
-            return $this->fail('supplier_id dan periode wajib diisi', 400);
+        if (!isset($data['supplier_id']) || !isset($data['periode'])) {
+            return $this->fail('supplier_id dan periode wajib diisi Pi!', 400);
         }
 
-        // Check apakah data untuk supplier & periode ini sudah ada (untuk UPSERT)
+        // Cari data lama buat UPSERT
         $existing = $this->model
             ->where('supplier_id', $data['supplier_id'])
             ->where('periode', $data['periode'])
             ->first();
 
         if ($existing) {
-            // Update existing
             $this->model->update($existing['id'], $data);
-            return $this->respondCreated([
-                'id' => $existing['id'],
-                'message' => 'Penilaian updated successfully',
-                'data' => $this->model->find($existing['id'])
-            ]);
+            return $this->respond(['message' => 'Data updated!', 'data' => $this->model->find($existing['id'])]);
         }
 
-        // Create new
         $id = $this->model->insert($data);
-
-        if ($id) {
-            return $this->respondCreated([
-                'id' => $id,
-                'message' => 'Penilaian created successfully',
-                'data' => $this->model->find($id)
-            ]);
-        }
-
-        return $this->fail('Gagal membuat penilaian', 500);
+        return $this->respondCreated(['id' => $id, 'message' => 'Data created!']);
     }
 
-    /**
-     * Update a model resource
-     * PATCH /api/penilaian/:id
-     */
-    public function update($id = null)
-    {
-        if (!$id) {
-            return $this->fail('ID penilaian tidak ditemukan', 400);
-        }
-
-        $data = $this->request->getJSON(true);
-
-        if (!$this->model->find($id)) {
-            return $this->failNotFound('Penilaian tidak ditemukan');
-        }
-
-        $this->model->update($id, $data);
-        return $this->respond([
-            'id' => $id,
-            'message' => 'Penilaian updated successfully',
-            'data' => $this->model->find($id)
-        ]);
-    }
-
-    /**
-     * Delete the designated resource object
-     * DELETE /api/penilaian/:id
-     */
-    public function delete($id = null)
-    {
-        if (!$id) {
-            return $this->fail('ID penilaian tidak ditemukan', 400);
-        }
-
-        if (!$this->model->find($id)) {
-            return $this->failNotFound('Penilaian tidak ditemukan');
-        }
-
-        $this->model->delete($id);
-        return $this->respondDeleted(['message' => 'Penilaian deleted successfully']);
-    }
-
-    /**
-     * Get summary data untuk dashboard (KPI, stats)
-     * GET /api/penilaian/summary/dashboard
-     */
+    // GET /api/penilaian/summary/dashboard
     public function dashboardSummary()
     {
-        // Get latest periode
-        $latestPeriode = $this->model
-            ->selectMax('periode', 'max_periode')
-            ->first();
+        $latest = $this->model->selectMax('periode')->first();
+        $periode = $latest['periode'] ?? date('Y-m');
 
-        $periode = $latestPeriode['max_periode'] ?? date('Y-m');
+        $data = $this->model->where('periode', $periode)->findAll();
 
-        // Get all penilaian for latest periode
-        $data = $this->model
-            ->where('periode', $periode)
-            ->findAll();
+        $summary = [
+            'total_suppliers' => count($data),
+            'grade_a'         => count(array_filter($data, fn($p) => ($p['grade'] ?? '') === 'A')),
+            'grade_c'         => count(array_filter($data, fn($p) => ($p['grade'] ?? '') === 'C')),
+            'pending_input'   => 42 - count($data)
+        ];
 
-        $totalSupplier = count($data);
-        $gradeA = 0;
-        $gradeC = 0;
-
-        foreach ($data as $p) {
-            if (isset($p['grade'])) {
-                if ($p['grade'] === 'A') $gradeA++;
-                elseif ($p['grade'] === 'C') $gradeC++;
-            }
-        }
-
-        // Count pending (suppliers without current month data)
-        $currentPeriode = date('Y-m');
-        $allSuppliers = 42; // Total suppliers
-        $withCurrentPeriode = count($data);
-        $pending = $allSuppliers - $withCurrentPeriode;
-
-        return $this->respond([
-            'total_suppliers' => $totalSupplier,
-            'grade_a' => $gradeA,
-            'grade_c' => $gradeC,
-            'pending_input' => max(0, $pending)
-        ]);
+        return $this->respond($summary);
     }
 
-    /**
-     * Get heatmap data untuk master rekap
-     * GET /api/penilaian/heatmap?periode=2026-04
-     */
+    // GET /api/penilaian/heatmap
     public function heatmapData()
     {
         $periode = $this->request->getVar('periode') ?? date('Y-m');
 
-        $data = $this->model
-            ->join('m_supplier', 'm_supplier.id = t_penilaian.supplier_id')
-            ->where('periode', $periode)
-            ->select('t_penilaian.*, m_supplier.nama_vendor, m_supplier.jenis_bahan')
-            ->orderBy('t_penilaian.total_score', 'DESC')
-            ->findAll();
-
-        return $this->respond($data);
+        return $this->respond(
+            $this->model
+                ->join('m_supplier', 'm_supplier.id = t_penilaian.supplier_id')
+                ->where('periode', $periode)
+                ->select('t_penilaian.*, m_supplier.nama_vendor, m_supplier.jenis_bahan')
+                ->orderBy('total_score', 'DESC')
+                ->findAll()
+        );
     }
 
-    /**
-     * Get top performers (untuk top 5 chart dashboard)
-     * GET /api/penilaian/top-performers?limit=5
-     */
+    // GET /api/penilaian/top-performers
     public function topPerformers()
     {
         $limit = $this->request->getVar('limit') ?? 5;
+        return $this->respond(
+            $this->model
+                ->join('m_supplier', 'm_supplier.id = t_penilaian.supplier_id')
+                ->select('m_supplier.nama_vendor, t_penilaian.total_score')
+                ->orderBy('total_score', 'DESC')
+                ->limit($limit)
+                ->findAll()
+        );
+    }
 
-        $data = $this->model
-            ->join('m_supplier', 'm_supplier.id = t_penilaian.supplier_id')
-            ->select('m_supplier.nama_vendor, t_penilaian.total_score')
-            ->orderBy('t_penilaian.total_score', 'DESC')
-            ->limit($limit)
-            ->findAll();
+    /**
+     * POST /api/penilaian/upload-ppic
+     * Handle Excel upload dari departemen PPIC
+     */
+  /**
+     * POST /api/penilaian/upload-ppic
+     * Handle Excel upload dari departemen PPIC (Support multi-sheet & auto-search vendor)
+     */
+    public function uploadPpic()
+    {
+        $supplier_id = $this->request->getPost('supplier_id');
+        $periode     = $this->request->getPost('periode');
+        $file        = $this->request->getFile('ppic_file');
 
-        return $this->respond($data);
+        if (!$supplier_id || !$periode || !$file) {
+            return $this->fail('Data tidak lengkap Pi! Pastiin supplier, periode, dan file Excel udah diisi.', 400);
+        }
+
+        if (!$file->isValid() || $file->hasMoved()) {
+            return $this->fail('File gagal diupload atau error.', 400);
+        }
+
+        try {
+            // 1. Cari Kode Vendor dari Database biar bisa dicocokin sama Excel
+            $supplierModel = new \App\Models\SupplierModel();
+            $supplierData = $supplierModel->find($supplier_id);
+            if (!$supplierData) return $this->fail('Supplier tidak ditemukan di database.', 404);
+            
+            $kode_vendor_target = $supplierData['kode_vendor'];
+
+            // 2. Load File Excel
+            $filepath = $file->getTempName();
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($filepath);
+            
+            // 3. Fokus cari sheet yang namanya "LIST" atau "LIST " (karena di file lo ada spasinya)
+            $worksheet = $spreadsheet->getSheetByName('LIST ') 
+                         ?? $spreadsheet->getSheetByName('LIST') 
+                         ?? $spreadsheet->getActiveSheet(); // Fallback ke sheet manapun yg kebuka
+
+            $highestRow = $worksheet->getHighestRow();
+            $ot_percent = null;
+
+            // 4. SCANNING EXCEL: Cari baris yang Kode Vendor-nya cocok (Mulai dari baris 6 karena atasnya header)
+            for ($row = 2; $row <= $highestRow; $row++) {
+                // Di file lo, Kode Vendor ada di Kolom B (Index 2)
+                $kodeVendorExcel = $worksheet->getCell('B' . $row)->getValue();
+
+                if ((string)$kodeVendorExcel === (string)$kode_vendor_target) {
+                    // Kalo ketemu! Ambil nilai Score di Kolom F
+                    $nilaiDesimal = $worksheet->getCell('F' . $row)->getCalculatedValue();
+                    
+                    // Kalo dapetnya string "-" (Kayak vendor AKZONOBEL di file lo), kita anggap 0
+                    if ($nilaiDesimal === '-') {
+                        $ot_percent = 0;
+                    } else {
+                        // Ubah desimal (0.839) jadi persen (83.9)
+                        $ot_percent = (float)$nilaiDesimal * 100;
+                    }
+                    break; // Stop pencarian, udah dapet datanya
+                }
+            }
+
+            // Kalo sampe baris terakhir vendornya gak ada di Excel
+            if ($ot_percent === null) {
+                return $this->fail("Data vendor {$supplierData['nama_vendor']} ({$kode_vendor_target}) tidak ditemukan di dalam sheet LIST Excel ini.", 404);
+            }
+
+            // 5. Simpan ke Database (UPSERT)
+            $existing = $this->model
+                ->where('supplier_id', $supplier_id)
+                ->where('periode', $periode)
+                ->first();
+
+            $dataToSave = [
+                'supplier_id' => $supplier_id,
+                'periode'     => $periode,
+                'ppic_ot_percent' => round($ot_percent, 2), // Bulatkan 2 angka di belakang koma
+            ];
+
+            if ($existing) {
+                $this->model->update($existing['id'], $dataToSave);
+                $id = $existing['id'];
+            } else {
+                $id = $this->model->insert($dataToSave);
+            }
+
+            return $this->respond([
+                'status'  => 'success',
+                'message' => 'Excel berhasil discan! Ketepatan waktu ditarik: ' . round($ot_percent, 2) . '%',
+                'data'    => $this->model->find($id)
+            ]);
+
+        } catch (\Exception $e) {
+            return $this->fail('Gagal baca Excel: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * POST /api/penilaian/upsert
+     * Jalur khusus (Ultimate) buat nyimpen data dari UI Form
+     */
+    public function upsert()
+    {
+        $json = $this->request->getJSON(true);
+        
+        if (!$json || empty($json['supplier_id']) || empty($json['periode'])) {
+            return $this->fail('Supplier dan Periode wajib diisi', 400);
+        }
+
+        // Cek apakah bulan ini vendor tersebut udah punya rapor?
+        $existing = $this->model
+            ->where('supplier_id', $json['supplier_id'])
+            ->where('periode', $json['periode'])
+            ->first();
+
+        try {
+            if ($existing) {
+                $this->model->update($existing['id'], $json);
+                $id = $existing['id'];
+            } else {
+                $id = $this->model->insert($json);
+            }
+
+            return $this->respond([
+                'status' => 'success',
+                'message' => 'Data penilaian berhasil disubmit!',
+                'data' => $this->model->find($id)
+            ]);
+        } catch (\Exception $e) {
+            return $this->fail('Gagal nyimpen ke database: ' . $e->getMessage(), 500);
+        }
     }
 }

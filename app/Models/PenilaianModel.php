@@ -8,10 +8,6 @@ class PenilaianModel extends Model
 {
     protected $table            = 't_penilaian';
     protected $primaryKey       = 'id';
-    protected $useAutoIncrement = true;
-    protected $returnType       = 'array';
-    protected $useSoftDeletes   = false;
-    protected $protectFields    = true;
     protected $allowedFields    = [
         'supplier_id', 'periode',
         'qc_ng_percent', 'qc_score',
@@ -21,154 +17,118 @@ class PenilaianModel extends Model
         'total_score', 'grade', 'status_final'
     ];
 
-    protected bool $allowEmptyInserts = false;
-    protected bool $updateOnlyChanged = true;
-
-    protected array $casts = [];
-    protected array $castHandlers = [];
-
-    // Dates
     protected $useTimestamps = true;
-    protected $dateFormat    = 'datetime';
-    protected $createdField  = 'created_at';
-    protected $updatedField  = 'updated_at';
-    protected $deletedField  = 'deleted_at';
-
-    // Validation
-    protected $validationRules      = [
-        'supplier_id' => 'required|numeric',
-        'periode' => 'required|regex_match[/^\d{4}-\d{2}$/]',
-    ];
-    protected $validationMessages   = [];
-    protected $skipValidation       = false;
-    protected $cleanValidationRules = true;
-
-    // Callbacks
-    protected $allowCallbacks = true;
     protected $beforeInsert   = ['calculateScores'];
-    protected $afterInsert    = [];
     protected $beforeUpdate   = ['calculateScores'];
-    protected $afterUpdate    = [];
-    protected $beforeFind     = [];
-    protected $afterFind      = [];
-    protected $beforeDelete   = [];
-    protected $afterDelete    = [];
 
-    /**
-     * Callback: Calculate scores berdasarkan input
-     */
     protected function calculateScores(array $data)
     {
-        // Calculate QC Score
-        if (isset($data['data']['qc_ng_percent'])) {
-            $ngPercent = (float)$data['data']['qc_ng_percent'];
-            $data['data']['qc_score'] = $this->calculateQCScore($ngPercent);
+        // 1. Ambil data lama
+        $existing = [];
+        if (isset($data['id'])) {
+            $id = is_array($data['id']) ? $data['id'][0] : $data['id'];
+            // FIX: Pake Query Builder biar CI4 nggak error (hindari $this->find)
+            $existing = $this->db->table($this->table)->where('id', $id)->get()->getRowArray();
         }
 
-        // Calculate PPIC Score
-        if (isset($data['data']['ppic_ot_percent'])) {
-            $otPercent = (float)$data['data']['ppic_ot_percent'];
-            $data['data']['ppic_score'] = $this->calculatePPICScore($otPercent);
+        // 2. Hitung QC
+        if (array_key_exists('qc_ng_percent', $data['data'])) {
+            $ng = $data['data']['qc_ng_percent'];
+            $data['data']['qc_score'] = ($ng !== null) ? $this->getQCScore((float)$ng) : 0;
         }
+        $qc = $data['data']['qc_score'] ?? ($existing['qc_score'] ?? 0);
 
-        // Calculate Purchasing Score
-        if (isset($data['data']['pch_harga'])) {
-            $data['data']['pch_score'] = $this->calculatePCHScore(
-                $data['data']['pch_harga'] ?? null,
-                $data['data']['pch_moq'] ?? null,
-                $data['data']['pch_top'] ?? null,
-                $data['data']['pch_pelayanan'] ?? null
-            );
+        // 3. Hitung PPIC
+        if (array_key_exists('ppic_ot_percent', $data['data'])) {
+            $ot = $data['data']['ppic_ot_percent'];
+            $data['data']['ppic_score'] = ($ot !== null) ? $this->getPPICScore((float)$ot) : 0;
         }
+        $ppic = $data['data']['ppic_score'] ?? ($existing['ppic_score'] ?? 0);
 
-        // Calculate HSE Score
-        if (isset($data['data']['hse_uji_emisi'])) {
-            $data['data']['hse_score'] = $this->calculateHSEScore(
-                $data['data']['hse_uji_emisi'] ?? null,
-                $data['data']['hse_apd'] ?? null
-            );
+        // 4. Hitung PCH (Purchasing)
+        if (isset($data['data']['pch_harga']) || isset($data['data']['pch_moq']) || isset($data['data']['pch_pelayanan'])) {
+            $pchData = [
+                'pch_harga'     => $data['data']['pch_harga'] ?? ($existing['pch_harga'] ?? null),
+                'pch_moq'       => $data['data']['pch_moq'] ?? ($existing['pch_moq'] ?? null),
+                'pch_pelayanan' => $data['data']['pch_pelayanan'] ?? ($existing['pch_pelayanan'] ?? null),
+                'pch_top'       => $existing['pch_top'] ?? 'BAIK' // Default 5 poin (BAIK) karena nunggu integrasi SAP
+            ];
+            $data['data']['pch_score'] = $this->getPCHScore($pchData);
         }
+        $pch = $data['data']['pch_score'] ?? ($existing['pch_score'] ?? 0);
 
-        // Calculate Total Score & Grade
-        $this->calculateTotalScoreAndGrade($data['data']);
+        // 5. Hitung HSE
+        if (isset($data['data']['hse_uji_emisi']) || isset($data['data']['hse_apd'])) {
+            $hseData = [
+                'hse_uji_emisi' => $data['data']['hse_uji_emisi'] ?? ($existing['hse_uji_emisi'] ?? null),
+                'hse_apd'       => $data['data']['hse_apd'] ?? ($existing['hse_apd'] ?? null),
+            ];
+            $data['data']['hse_score'] = $this->getHSEScore($hseData);
+        }
+        $hse = $data['data']['hse_score'] ?? ($existing['hse_score'] ?? 0);
+
+        // 6. Update Total & Grade
+        $total = $qc + $ppic + $pch + $hse;
+        $data['data']['total_score'] = $total;
+
+        // Threshold dari Excel: >= 90 BAIK(A), 70-89 CUKUP(B), < 70 KURANG(C)
+        if ($total >= 90) $data['data']['grade'] = 'A';
+        elseif ($total >= 70) $data['data']['grade'] = 'B';
+        else $data['data']['grade'] = 'C';
 
         return $data;
     }
 
-    /**
-     * Convert QC NG% to score (0% NG = 30 pts, higher NG = lower score)
-     */
-    private function calculateQCScore($ngPercent): int
-    {
-        if ($ngPercent <= 0.5) return 30;
-        if ($ngPercent <= 1.0) return 25;
-        if ($ngPercent <= 2.0) return 20;
-        if ($ngPercent <= 5.0) return 15;
-        return 10;
+    // --- HELPER SCORING PERSIS EXCEL ---
+    private function getQCScore($ng) {
+        if ($ng < 0.5) return 30;       // < 0.5% -> 30
+        if ($ng < 1.0) return 15;       // 0.5% - <1% -> 15
+        return 10;                      // >= 1% -> 10
     }
 
-    /**
-     * Convert PPIC On-Time% to score (higher OT = higher score)
-     */
-    private function calculatePPICScore($otPercent): int
-    {
-        if ($otPercent >= 95) return 30;
-        if ($otPercent >= 90) return 25;
-        if ($otPercent >= 85) return 20;
-        if ($otPercent >= 80) return 15;
-        return 10;
+    private function getPPICScore($ot) {
+        if ($ot >= 90) return 30;       // >= 90% -> 30
+        if ($ot >= 71) return 15;       // 71% - 89% -> 15
+        return 10;                      // <= 70% -> 10
     }
 
-    /**
-     * Calculate Purchasing Score (Harga, MOQ, TOP, Pelayanan)
-     * BAIK = 3, CUKUP = 2, KURANG = 1
-     */
-    private function calculatePCHScore($harga, $moq, $top, $pelayanan): int
-    {
+    private function getPCHScore($d) {
         $score = 0;
-        $score += ($harga === 'BAIK' ? 3 : ($harga === 'CUKUP' ? 2 : 1)) * 2;
-        $score += ($moq === 'BAIK' ? 3 : ($moq === 'CUKUP' ? 2 : 1)) * 2;
-        $score += ($top === 'BAIK' ? 3 : ($top === 'CUKUP' ? 2 : 1)) * 2;
-        $score += ($pelayanan === 'BAIK' ? 3 : ($pelayanan === 'CUKUP' ? 2 : 1)) * 2;
-        
-        // Max 40 pts
-        return min($score, 40);
+        // Harga (Maks 10)
+        if (($d['pch_harga'] ?? '') === 'BAIK') $score += 10;
+        elseif (($d['pch_harga'] ?? '') === 'CUKUP') $score += 5;
+        elseif (($d['pch_harga'] ?? '') === 'KURANG') $score += 3;
+
+        // MOQ (Maks 10)
+        if (($d['pch_moq'] ?? '') === 'BAIK') $score += 10;
+        elseif (($d['pch_moq'] ?? '') === 'CUKUP') $score += 5;
+        elseif (($d['pch_moq'] ?? '') === 'KURANG') $score += 3;
+
+        // TOP (Maks 5)
+        if (($d['pch_top'] ?? '') === 'BAIK') $score += 5;
+        elseif (($d['pch_top'] ?? '') === 'CUKUP') $score += 3;
+        elseif (($d['pch_top'] ?? '') === 'KURANG') $score += 1;
+
+        // Pelayanan (Maks 5)
+        if (($d['pch_pelayanan'] ?? '') === 'BAIK') $score += 5;
+        elseif (($d['pch_pelayanan'] ?? '') === 'CUKUP') $score += 3;
+        elseif (($d['pch_pelayanan'] ?? '') === 'KURANG') $score += 1;
+
+        return $score;
     }
 
-    /**
-     * Calculate HSE Score (Uji Emisi, APD)
-     */
-    private function calculateHSEScore($ujiEmisi, $apd): int
-    {
+    private function getHSEScore($d) {
         $score = 0;
-        $score += ($ujiEmisi === 'BAIK' ? 3 : ($ujiEmisi === 'CUKUP' ? 2 : 1)) * 5;
-        $score += ($apd === 'BAIK' ? 3 : ($apd === 'CUKUP' ? 2 : 1)) * 5;
-        
-        // Max 30 pts
-        return min($score, 30);
-    }
+        // Uji Emisi (Maks 5)
+        if (($d['hse_uji_emisi'] ?? '') === 'BAIK') $score += 5;
+        elseif (($d['hse_uji_emisi'] ?? '') === 'CUKUP') $score += 3;
+        elseif (($d['hse_uji_emisi'] ?? '') === 'KURANG') $score += 1;
 
-    /**
-     * Calculate total score & assign grade
-     * Max: 30 (QC) + 30 (PPIC) + 40 (PCH) + 30 (HSE) = 130
-     */
-    private function calculateTotalScoreAndGrade(&$data): void
-    {
-        $total = 0;
-        $total += $data['qc_score'] ?? 0;
-        $total += $data['ppic_score'] ?? 0;
-        $total += $data['pch_score'] ?? 0;
-        $total += $data['hse_score'] ?? 0;
+        // APD (Maks 5)
+        if (($d['hse_apd'] ?? '') === 'BAIK') $score += 5;
+        elseif (($d['hse_apd'] ?? '') === 'CUKUP') $score += 3;
+        elseif (($d['hse_apd'] ?? '') === 'KURANG') $score += 1;
 
-        $data['total_score'] = $total;
-
-        // Assign grade (A = 100-130, B = 70-99, C = <70)
-        if ($total >= 100) {
-            $data['grade'] = 'A';
-        } elseif ($total >= 70) {
-            $data['grade'] = 'B';
-        } else {
-            $data['grade'] = 'C';
-        }
+        return $score;
     }
 }
