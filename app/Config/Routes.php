@@ -9,23 +9,20 @@ $routes->get('/', 'Home::index');
 
 // API Routes
 $routes->group('api', ['namespace' => 'App\Controllers\Api'], static function ($routes) {
-    // Custom endpoints untuk dashboard & heatmap (must come before resource routes)
+    
+    // 1. Pintu darurat buat preflight OPTIONS biar gak 404
+    $routes->options('(:any)', static function() {
+        return response()->setStatusCode(200);
+    });
+
+    // 2. Custom endpoints (HARUS di atas resource)
     $routes->get('penilaian/summary/dashboard', 'Penilaian::dashboardSummary');
     $routes->get('penilaian/heatmap/data', 'Penilaian::heatmapData');
     $routes->get('penilaian/top-performers', 'Penilaian::topPerformers');
-    
-    $routes->post('penilaian/upload-ppic', 'Api\Penilaian::uploadPpic');
-    $routes->post('penilaian/upsert', 'Api\Penilaian::upsert');
+    $routes->post('penilaian/upload-ppic', 'Penilaian::uploadPpic');
+    $routes->post('penilaian/upsert', 'Penilaian::upsert');
 
-    // Supplier Resource
-    $routes->resource('supplier', [
-        'controller' => 'Supplier',
-        'except'     => ['new', 'edit']
-    ]);
-
-    // Penilaian Resource
-    $routes->resource('penilaian', [
-        'controller' => 'Penilaian',
-        'except'     => ['new', 'edit']
-    ]);
+    // 3. Resource routes
+    $routes->resource('supplier', ['controller' => 'Supplier', 'except' => ['new', 'edit']]);
+    $routes->resource('penilaian', ['controller' => 'Penilaian', 'except' => ['new', 'edit']]);
 });

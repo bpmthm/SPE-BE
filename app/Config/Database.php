@@ -51,6 +51,16 @@ class Database extends Config
         ],
     ];
 
+    public array $sap = [
+    'DSN'          => '',
+    'hostname'     => 'localhost', // Karena SQL Server lo di host Fedora
+    'username'     => 'sa',
+    'password'     => 'Lutficandaka200',
+    'database'     => 'CHITOSE_PROD_SAP',
+    'DBDriver'     => 'SQLSRV',
+    'port'         => 1433,
+];
+
     //    /**
     //     * Sample database connection for SQLite3.
     //     *
