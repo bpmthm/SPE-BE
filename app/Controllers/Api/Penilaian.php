@@ -89,38 +89,49 @@ class Penilaian extends ResourceController
             $sheet = $spreadsheet->getSheetByName($targetSheet);
             
             $highestRow = $sheet->getHighestRow();
-            $scoreValue = null;
+            $scoreValue    = null;
+            $namaVendorExcel = null;
+            $tidakAdaPO    = false;
 
-            // Cari barisnya (mulai baris 5 biasanya di excel si ibu)
+            // Cari baris yang cocok di kolom B (Kode Vendor)
             for ($row = 1; $row <= $highestRow; $row++) {
                 $cellB = trim((string)$sheet->getCell('B' . $row)->getValue());
-                
+
                 if ($cellB === $targetKode) {
+                    // Kolom C = Nama Vendor (untuk konfirmasi ke frontend)
+                    $namaVendorExcel = trim((string)$sheet->getCell('C' . $row)->getValue());
+
+                    // Kolom F = Score
                     $valF = $sheet->getCell('F' . $row)->getCalculatedValue();
-                    
+
                     if ($valF === '-' || $valF === null || $valF === '') {
-                        $scoreValue = 0;
+                        // Tidak ada PO / delivery di bulan ini
+                        $scoreValue  = 0;
+                        $tidakAdaPO  = true;
                     } else {
-                        // Kalo di excel 0.8396, jadi 83.96
+                        // Excel simpan sebagai desimal (0.8396), kita jadikan persen (83.96)
                         $scoreValue = (float)$valF * 100;
                     }
                     break;
                 }
             }
 
-            // Bersihin memori abis dipake
+            // Bersihin memori
             $spreadsheet->disconnectWorksheets();
             unset($spreadsheet);
 
             if ($scoreValue === null) {
-                return $this->fail("Kode vendor $targetKode gak ada di sheet $targetSheet.", 404);
+                return $this->fail(
+                    "Kode vendor \"$targetKode\" tidak ditemukan di sheet \"$targetSheet\". Pastikan kode vendor di Excel sesuai.",
+                    404
+                );
             }
 
-            // Simpan ke DB (Logic UPSERT)
+            // Simpan ke DB (UPSERT)
             $existing = $this->model->where('supplier_id', $supplier_id)->where('periode', $periode)->first();
             $dataPpic = [
-                'supplier_id' => $supplier_id,
-                'periode' => $periode,
+                'supplier_id'     => $supplier_id,
+                'periode'         => $periode,
                 'ppic_ot_percent' => round($scoreValue, 2)
             ];
 
@@ -131,14 +142,133 @@ class Penilaian extends ResourceController
                 $id = $this->model->insert($dataPpic);
             }
 
+            $message = $tidakAdaPO
+                ? "Tidak ada PO/delivery untuk vendor $targetKode di periode ini."
+                : "Score berhasil dibaca: " . round($scoreValue, 2) . "%";
+
             return $this->respond([
-                'status' => 'success',
-                'message' => "Selesai! Skor: " . round($scoreValue, 2) . "%",
-                'data' => $this->model->find($id)
+                'status'           => 'success',
+                'message'          => $message,
+                'tidak_ada_po'     => $tidakAdaPO,
+                'excel_kode_vendor'=> $targetKode,
+                'excel_nama_vendor'=> $namaVendorExcel,
+                'score_percent'    => round($scoreValue, 2),
+                'data'             => $this->model->find($id)
             ]);
 
         } catch (\Exception $e) {
             return $this->fail('Dapur Meledak: ' . $e->getMessage(), 500);
         }
+    }
+
+
+    /**
+     * GET /api/penilaian/summary/dashboard
+     * Ngitung statistik keseluruhan buat KPI cards di dashboard
+     */
+    public function dashboardSummary()
+    {
+        $db = \Config\Database::connect();
+
+        // Hitung total supplier aktif
+        $totalSuppliers = $db->table('m_supplier')->where('is_active', 1)->countAllResults();
+
+        // Ambil periode terbaru yang ada datanya
+        $latestPeriode = $db->table('t_penilaian')
+            ->select('periode')
+            ->orderBy('periode', 'DESC')
+            ->limit(1)
+            ->get()->getRow();
+
+        $periode = $latestPeriode ? $latestPeriode->periode : null;
+
+        $gradeA = 0;
+        $gradeB = 0;
+        $gradeC = 0;
+        $pendingInput = $totalSuppliers; // Default: semua pending
+
+        if ($periode) {
+            $gradeA = $db->table('t_penilaian')->where('periode', $periode)->where('grade', 'A')->countAllResults();
+            $gradeB = $db->table('t_penilaian')->where('periode', $periode)->where('grade', 'B')->countAllResults();
+            $gradeC = $db->table('t_penilaian')->where('periode', $periode)->where('grade', 'C')->countAllResults();
+            $sudahInput = $gradeA + $gradeB + $gradeC;
+            $pendingInput = max(0, $totalSuppliers - $sudahInput);
+        }
+
+        return $this->respond([
+            'status'          => 200,
+            'total_suppliers' => $totalSuppliers,
+            'grade_a'         => $gradeA,
+            'grade_b'         => $gradeB,
+            'grade_c'         => $gradeC,
+            'pending_input'   => $pendingInput,
+            'latest_periode'  => $periode,
+        ]);
+    }
+
+    /**
+     * GET /api/penilaian/heatmap/data?periode=YYYY-MM
+     * Ngambil semua data penilaian + info supplier buat master rekap heatmap
+     */
+    public function heatmapData()
+    {
+        $periode = $this->request->getGet('periode');
+
+        $db = \Config\Database::connect();
+        $builder = $db->table('t_penilaian p');
+        $builder->select('p.*, s.nama_vendor, s.kode_vendor, s.jenis_bahan');
+        $builder->join('m_supplier s', 's.id = p.supplier_id', 'inner');
+
+        if ($periode) {
+            $builder->where('p.periode', $periode);
+        } else {
+            // Kalo gak dikasih periode, ambil yang paling baru aja
+            $latestPeriode = $db->table('t_penilaian')
+                ->select('periode')
+                ->orderBy('periode', 'DESC')
+                ->limit(1)
+                ->get()->getRow();
+            if ($latestPeriode) {
+                $builder->where('p.periode', $latestPeriode->periode);
+            }
+        }
+
+        $builder->orderBy('p.total_score', 'DESC');
+        $data = $builder->get()->getResultArray();
+
+        return $this->respond($data);
+    }
+
+    /**
+     * GET /api/penilaian/top-performers?limit=5
+     * Ambil supplier dengan skor tertinggi di periode terbaru
+     */
+    public function topPerformers()
+    {
+        $limit = (int) ($this->request->getGet('limit') ?? 5);
+        if ($limit <= 0 || $limit > 50) $limit = 5;
+
+        $db = \Config\Database::connect();
+
+        // Ambil periode terbaru dulu
+        $latestPeriode = $db->table('t_penilaian')
+            ->select('periode')
+            ->orderBy('periode', 'DESC')
+            ->limit(1)
+            ->get()->getRow();
+
+        if (!$latestPeriode) {
+            return $this->respond([]);
+        }
+
+        $data = $db->table('t_penilaian p')
+            ->select('p.total_score, p.grade, p.periode, s.nama_vendor, s.kode_vendor, s.jenis_bahan')
+            ->join('m_supplier s', 's.id = p.supplier_id', 'inner')
+            ->where('p.periode', $latestPeriode->periode)
+            ->orderBy('p.total_score', 'DESC')
+            ->limit($limit)
+            ->get()->getResultArray();
+
+        return $this->respond($data);
     }
 }

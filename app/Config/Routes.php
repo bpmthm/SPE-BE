@@ -22,7 +22,10 @@ $routes->group('api', ['namespace' => 'App\Controllers\Api'], static function ($
     $routes->post('penilaian/upload-ppic', 'Penilaian::uploadPpic');
     $routes->post('penilaian/upsert', 'Penilaian::upsert');
 
-    // 3. Resource routes
+    // 3. Custom Supplier endpoints (HARUS di atas resource)
+    $routes->get('supplier/get-qty', 'Supplier::getQtySap');
+
+    // 4. Resource routes
     $routes->resource('supplier', ['controller' => 'Supplier', 'except' => ['new', 'edit']]);
     $routes->resource('penilaian', ['controller' => 'Penilaian', 'except' => ['new', 'edit']]);
 });

@@ -52,14 +52,24 @@ class Database extends Config
     ];
 
     public array $sap = [
-    'DSN'          => '',
-    'hostname'     => 'localhost', // Karena SQL Server lo di host Fedora
-    'username'     => 'sa',
-    'password'     => 'Lutficandaka200',
-    'database'     => 'CHITOSE_PROD_SAP',
-    'DBDriver'     => 'SQLSRV',
-    'port'         => 1433,
-];
+        'DSN'      => '',
+        'hostname' => 'localhost', // Docker lo ada di lokal Fedora
+        'username' => 'sa',
+        'password' => 'Lutficandaka200',
+        'database' => 'CHITOSE_PROD_SAP',
+        'DBDriver' => 'SQLSRV',
+        'DBPrefix' => '',
+        'pConnect' => false,
+        'DBDebug'  => true,
+        'charset'  => 'utf8',
+        'DBCollat' => 'utf8_general_ci',
+        'swapPre'  => '',
+        'encrypt'  => false,
+        'compress' => false,
+        'strictOn' => false,
+        'failover' => [],
+        'port'     => 1433,
+    ];
 
     //    /**
     //     * Sample database connection for SQLite3.
