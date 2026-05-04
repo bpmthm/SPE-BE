@@ -188,10 +188,10 @@ class Penilaian extends ResourceController
         $pendingInput = $totalSuppliers; // Default: semua pending
 
         if ($periode) {
-            $gradeA = $db->table('t_penilaian')->where('periode', $periode)->where('grade', 'A')->countAllResults();
-            $gradeB = $db->table('t_penilaian')->where('periode', $periode)->where('grade', 'B')->countAllResults();
-            $gradeC = $db->table('t_penilaian')->where('periode', $periode)->where('grade', 'C')->countAllResults();
-            $sudahInput = $gradeA + $gradeB + $gradeC;
+            $gradeA = 0;
+            $gradeB = 0;
+            $gradeC = 0;
+            $sudahInput = $db->table('t_penilaian')->where('periode', $periode)->countAllResults();
             $pendingInput = max(0, $totalSuppliers - $sudahInput);
         }
 
@@ -233,7 +233,7 @@ class Penilaian extends ResourceController
             }
         }
 
-        $builder->orderBy('p.total_score', 'DESC');
+        $builder->orderBy('p.id', 'DESC');
         $data = $builder->get()->getResultArray();
 
         return $this->respond($data);
@@ -262,10 +262,10 @@ class Penilaian extends ResourceController
         }
 
         $data = $db->table('t_penilaian p')
-            ->select('p.total_score, p.grade, p.periode, s.nama_vendor, s.kode_vendor, s.jenis_bahan')
+            ->select('p.qc_score, p.ppic_score, p.pch_score, p.hse_score, p.periode, s.nama_vendor, s.kode_vendor, s.jenis_bahan')
             ->join('m_supplier s', 's.id = p.supplier_id', 'inner')
             ->where('p.periode', $latestPeriode->periode)
-            ->orderBy('p.total_score', 'DESC')
+            ->orderBy('p.qc_score', 'DESC')
             ->limit($limit)
             ->get()->getResultArray();
 
