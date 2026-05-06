@@ -53,7 +53,7 @@ class Database extends Config
 
     public array $sap = [
         'DSN'      => '',
-        'hostname' => 'localhost', // Docker lo ada di lokal Fedora
+        'hostname' => 'localhost', // Docker ada di lokal Fedora
         'username' => 'sa',
         'password' => 'Lutficandaka200',
         'database' => 'CHITOSE_PROD_SAP',

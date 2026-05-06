@@ -89,28 +89,45 @@ class Penilaian extends ResourceController
             $sheet = $spreadsheet->getSheetByName($targetSheet);
             
             $highestRow = $sheet->getHighestRow();
-            $scoreValue    = null;
+            $scoreValue      = null;
             $namaVendorExcel = null;
-            $tidakAdaPO    = false;
+            $tidakAdaPO      = false;
 
-            // Cari baris yang cocok di kolom B (Kode Vendor)
+            // PENTING: Kolom B di Excel menyimpan kode vendor sebagai INTEGER (bukan string).
+            // Kita bandingkan keduanya sebagai string setelah trim untuk handle leading zeros jika ada.
+            // Cast $targetKode juga ke int lalu string agar konsisten.
+            $targetKodeNorm = (string)(int)$targetKode; // "1003107" → sama dengan (int)1003107 → "1003107"
+
             for ($row = 1; $row <= $highestRow; $row++) {
-                $cellB = trim((string)$sheet->getCell('B' . $row)->getValue());
+                $cellBRaw  = $sheet->getCell('B' . $row)->getValue();
+                $cellBNorm = (string)(int)trim((string)$cellBRaw); // int dari excel → cast ke string
 
-                if ($cellB === $targetKode) {
+                if ($cellBNorm === $targetKodeNorm && $cellBNorm !== '0') {
                     // Kolom C = Nama Vendor (untuk konfirmasi ke frontend)
                     $namaVendorExcel = trim((string)$sheet->getCell('C' . $row)->getValue());
 
-                    // Kolom F = Score
-                    $valF = $sheet->getCell('F' . $row)->getCalculatedValue();
+                    // Kolom F = Score (disimpan Excel sebagai desimal: 0.8396 = 83.96%)
+                    // PENTING: Gunakan getOldCalculatedValue() karena setLoadSheetsOnly('LIST')
+                    // membuat formula SUMIF gagal menghitung (karena sheet 'jadwal' tidak diload).
+                    // getOldCalculatedValue() akan mengambil hasil cache terakhir yang disimpan Excel.
+                    $valF = null;
+                    try {
+                        $valF = $sheet->getCell('F' . $row)->getOldCalculatedValue();
+                        // Fallback jika tidak ada cache sama sekali (jarang terjadi)
+                        if ($valF === null) {
+                            $valF = $sheet->getCell('F' . $row)->getCalculatedValue();
+                        }
+                    } catch (\Exception $e) {
+                        $valF = $sheet->getCell('F' . $row)->getValue();
+                    }
 
-                    if ($valF === '-' || $valF === null || $valF === '') {
+                    if ($valF === '-' || $valF === null || $valF === '' || (string)$valF === '-') {
                         // Tidak ada PO / delivery di bulan ini
-                        $scoreValue  = 0;
-                        $tidakAdaPO  = true;
+                        $scoreValue = 0;
+                        $tidakAdaPO = true;
                     } else {
-                        // Excel simpan sebagai desimal (0.8396), kita jadikan persen (83.96)
-                        $scoreValue = (float)$valF * 100;
+                        // Excel simpan sebagai desimal (0.8396) → kita jadikan persen (83.96)
+                        $scoreValue = round((float)$valF * 100, 2);
                     }
                     break;
                 }
@@ -122,7 +139,7 @@ class Penilaian extends ResourceController
 
             if ($scoreValue === null) {
                 return $this->fail(
-                    "Kode vendor \"$targetKode\" tidak ditemukan di sheet \"$targetSheet\". Pastikan kode vendor di Excel sesuai.",
+                    "Kode vendor \"$targetKode\" (dinormalisasi: \"$targetKodeNorm\") tidak ditemukan di sheet \"$targetSheet\". Cek apakah kode vendor di database sesuai dengan yang ada di Excel.",
                     404
                 );
             }
