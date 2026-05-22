@@ -65,6 +65,7 @@ class Database extends Config
         'DBCollat' => 'utf8_general_ci',
         'swapPre'  => '',
         'encrypt'  => false,
+        'TrustServerCertificate' => true,
         'compress' => false,
         'strictOn' => false,
         'failover' => [],

@@ -89,8 +89,18 @@ class PenilaianModel extends Model
         return $data;
     }
 
-    private function getQCScore($ng) { return $ng == 0 ? 30 : ($ng <= 1.0 ? 15 : 10); } // Sesuai instruksi baru
-    private function getPPICScore($ot) { return $ot >= 90 ? 30 : ($ot >= 71 ? 15 : 10); } // Sesuai Excel Maks 30
+    private function getQCScore($ng) { 
+        if ($ng < 0.5) return 30;
+        elseif ($ng >= 0.5 && $ng < 1) return 15;
+        elseif ($ng >= 1) return 10;
+        return 0;
+    }
+    
+    private function getPPICScore($ot) { 
+        if ($ot >= 90) return 30;
+        elseif ($ot >= 71) return 15;
+        return 10;
+    }
 
     private function getPCHScore($d) {
         $s = 0;
@@ -128,5 +138,78 @@ class PenilaianModel extends Model
         elseif (($d['hse_apd'] ?? '') === 'KURANG') $s += 1;
         
         return $s;
+    }
+
+    /**
+     * Ambil data aktual bulan ke bulan untuk satu vendor dalam rentang periode.
+     *
+     * @param string $kodeVendor  Kode vendor (dari kolom s.kode_vendor)
+     * @param string $periodeAwal Format YYYY-MM (inklusif)
+     * @param string $periodeAkhir Format YYYY-MM (inklusif)
+     * @return array [
+     *   'data_aktual' => array of monthly rows,
+     *   'rata_rata'   => object with AVG values,
+     *   'nama_vendor' => string,
+     *   'jenis_bahan' => string,
+     * ]
+     */
+    public function getDetailEvaluasi(string $kodeVendor, string $periodeAwal, string $periodeAkhir): array
+    {
+        $db = \Config\Database::connect();
+
+        // ── 1. Data aktual per bulan ──────────────────────────────────────────
+        $dataAktual = $db->table('t_penilaian p')
+            ->select([
+                'p.periode',
+                'p.qc_score', 'p.qc_ng_percent', 'p.qc_qty_terima', 'p.qc_qty_reject',
+                'p.ppic_score', 'p.ppic_ot_percent',
+                'p.pch_score', 'p.pch_harga', 'p.pch_moq', 'p.pch_top', 'p.pch_pelayanan',
+                'p.hse_score', 'p.hse_uji_emisi', 'p.hse_apd',
+                'p.total_score', 'p.grade',
+                's.nama_vendor', 's.kode_vendor', 's.jenis_bahan',
+            ])
+            ->join('m_supplier s', 's.id = p.supplier_id', 'inner')
+            ->where('s.kode_vendor', $kodeVendor)
+            ->where('p.periode >=', $periodeAwal)
+            ->where('p.periode <=', $periodeAkhir)
+            ->orderBy('p.periode', 'ASC')
+            ->get()
+            ->getResultArray();
+
+        // ── 2. Rata-rata agregat (AVG) via DB ────────────────────────────────
+        $avgRow = $db->table('t_penilaian p')
+            ->select([
+                'AVG(p.qc_score)       AS avg_qc_score',
+                'AVG(p.qc_ng_percent)  AS avg_qc_ng_percent',
+                'SUM(p.qc_qty_terima)  AS sum_qc_qty_terima',
+                'SUM(p.qc_qty_reject)  AS sum_qc_qty_reject',
+                'AVG(p.ppic_score)     AS avg_ppic_score',
+                'AVG(p.ppic_ot_percent)AS avg_ppic_ot_percent',
+                'AVG(p.pch_score)      AS avg_pch_score',
+                'AVG(p.hse_score)      AS avg_hse_score',
+                'AVG(p.total_score)    AS avg_total_score',
+                'COUNT(p.id)           AS jumlah_bulan',
+            ], false)
+            ->join('m_supplier s', 's.id = p.supplier_id', 'inner')
+            ->where('s.kode_vendor', $kodeVendor)
+            ->where('p.periode >=', $periodeAwal)
+            ->where('p.periode <=', $periodeAkhir)
+            ->get()
+            ->getRowArray();
+
+        // Tentukan avg_grade berdasarkan avg_total_score
+        $avgTotal = (float)($avgRow['avg_total_score'] ?? 0);
+        $avgGrade = $avgTotal >= 90 ? 'A' : ($avgTotal >= 70 ? 'B' : 'C');
+
+        // Ambil info vendor dari baris pertama (jika ada data)
+        $namaVendor  = $dataAktual[0]['nama_vendor']  ?? '-';
+        $jenisBahan  = $dataAktual[0]['jenis_bahan']  ?? '-';
+
+        return [
+            'nama_vendor'  => $namaVendor,
+            'jenis_bahan'  => $jenisBahan,
+            'data_aktual'  => $dataAktual,
+            'rata_rata'    => array_merge($avgRow ?? [], ['avg_grade' => $avgGrade]),
+        ];
     }
 }

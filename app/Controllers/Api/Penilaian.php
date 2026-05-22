@@ -288,4 +288,67 @@ class Penilaian extends ResourceController
 
         return $this->respond($data);
     }
+
+    /**
+     * GET /api/penilaian/evaluasi/detail
+     *   ?kode_vendor=1003107&periode_awal=2025-07&periode_akhir=2025-12
+     *
+     * Mengembalikan data aktual bulan ke bulan dan rata-rata agregat
+     * untuk satu vendor dalam rentang waktu yang ditentukan.
+     */
+    public function getDetailEvaluasi()
+    {
+        $kodeVendor   = $this->request->getGet('kode_vendor');
+        $periodeAwal  = $this->request->getGet('periode_awal');
+        $periodeAkhir = $this->request->getGet('periode_akhir');
+
+        // ── Validasi parameter ────────────────────────────────────────────────
+        if (empty($kodeVendor) || empty($periodeAwal) || empty($periodeAkhir)) {
+            return $this->fail(
+                'Parameter kode_vendor, periode_awal, dan periode_akhir wajib diisi.',
+                400
+            );
+        }
+
+        // Format YYYY-MM sederhana (tidak perlu regex berat)
+        $periodePattern = '/^\d{4}-(0[1-9]|1[0-2])$/';
+        if (!preg_match($periodePattern, $periodeAwal) || !preg_match($periodePattern, $periodeAkhir)) {
+            return $this->fail('Format periode harus YYYY-MM (contoh: 2025-07).', 400);
+        }
+
+        if ($periodeAwal > $periodeAkhir) {
+            return $this->fail('periode_awal tidak boleh lebih besar dari periode_akhir.', 400);
+        }
+
+        // ── Eksekusi query lewat Model ────────────────────────────────────────
+        try {
+            $result = $this->model->getDetailEvaluasi(
+                trim($kodeVendor),
+                $periodeAwal,
+                $periodeAkhir
+            );
+
+            if (empty($result['data_aktual'])) {
+                return $this->respond([
+                    'status'       => 'empty',
+                    'message'      => "Tidak ada data untuk vendor $kodeVendor dalam rentang $periodeAwal s/d $periodeAkhir.",
+                    'nama_vendor'  => '-',
+                    'jenis_bahan'  => '-',
+                    'data_aktual'  => [],
+                    'rata_rata'    => null,
+                ]);
+            }
+
+            return $this->respond([
+                'status'      => 'success',
+                'nama_vendor' => $result['nama_vendor'],
+                'jenis_bahan' => $result['jenis_bahan'],
+                'data_aktual' => $result['data_aktual'],
+                'rata_rata'   => $result['rata_rata'],
+            ]);
+
+        } catch (\Exception $e) {
+            return $this->fail('Server error: ' . $e->getMessage(), 500);
+        }
+    }
 }

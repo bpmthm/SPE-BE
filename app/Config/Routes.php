@@ -19,13 +19,18 @@ $routes->group('api', ['namespace' => 'App\Controllers\Api'], static function ($
     $routes->get('penilaian/summary/dashboard', 'Penilaian::dashboardSummary');
     $routes->get('penilaian/heatmap/data', 'Penilaian::heatmapData');
     $routes->get('penilaian/top-performers', 'Penilaian::topPerformers');
+    $routes->get('penilaian/evaluasi/detail', 'Penilaian::getDetailEvaluasi');
     $routes->post('penilaian/upload-ppic', 'Penilaian::uploadPpic');
     $routes->post('penilaian/upsert', 'Penilaian::upsert');
 
     // 3. Custom Supplier endpoints (HARUS di atas resource)
+    $routes->get('supplier/all', 'Supplier::allSuppliers');
     $routes->get('supplier/get-qty', 'Supplier::getQtySap');
+    $routes->post('supplier/toggle-status/(:num)', 'Supplier::toggleStatus/$1');
 
     // 4. Resource routes
     $routes->resource('supplier', ['controller' => 'Supplier', 'except' => ['new', 'edit']]);
     $routes->resource('penilaian', ['controller' => 'Penilaian', 'except' => ['new', 'edit']]);
+    $routes->resource('qc-daily', ['controller' => 'QcDaily', 'only' => ['index', 'create']]);
+    $routes->get('sap/materials', 'QcDaily::searchMaterials');
 });

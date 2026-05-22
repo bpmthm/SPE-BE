@@ -17,6 +17,40 @@ class Supplier extends ResourceController
         return $this->respond($model->where('is_active', 1)->findAll());
     }
 
+    /**
+     * GET /api/supplier/all
+     * Ambil SEMUA vendor termasuk yang non-aktif (untuk Master Vendor page)
+     */
+    public function allSuppliers()
+    {
+        $model = new SupplierModel();
+        return $this->respond($model->findAll());
+    }
+
+    /**
+     * POST /api/supplier/toggle-status/{id}
+     * Flip is_active: 1 → 0, 0 → 1
+     */
+    public function toggleStatus($id = null)
+    {
+        $model = new SupplierModel();
+        $vendor = $model->find($id);
+
+        if (!$vendor) {
+            return $this->failNotFound('Vendor tidak ditemukan');
+        }
+
+        $newStatus = (int)$vendor['is_active'] === 1 ? 0 : 1;
+        $model->update($id, ['is_active' => $newStatus]);
+
+        return $this->respond([
+            'status'    => 'success',
+            'id'        => $id,
+            'is_active' => $newStatus,
+            'message'   => $newStatus === 1 ? 'Vendor berhasil diaktifkan' : 'Vendor berhasil dinonaktifkan'
+        ]);
+    }
+
     public function getQtySap()
     {
         // Tangkap parameter dari request GET frontend
