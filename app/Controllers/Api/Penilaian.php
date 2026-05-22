@@ -351,4 +351,120 @@ class Penilaian extends ResourceController
             return $this->fail('Server error: ' . $e->getMessage(), 500);
         }
     }
+
+    public function exportExcel()
+    {
+        $json = $this->request->getJSON(true);
+        if (!$json || empty($json['headers']) || !isset($json['rows'])) {
+            return $this->fail('Data export tidak valid.', 400);
+        }
+
+        $filename = $json['filename'] ?? 'export.xlsx';
+        $title    = $json['title'] ?? 'LAPORAN PENILAIAN VENDOR';
+        $periode  = $json['periode'] ?? '';
+        $headers  = $json['headers'];
+        $rows     = $json['rows'];
+
+        try {
+            $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            
+            // Tentukan range kolom berdasarkan jumlah headers
+            $maxColIndex = count($headers);
+            $maxColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($maxColIndex);
+
+            // 1. Judul Laporan
+            $sheet->mergeCells("A1:{$maxColLetter}1");
+            $sheet->setCellValue('A1', strtoupper($title));
+            $sheet->getStyle("A1:{$maxColLetter}1")->getFont()->setBold(true)->setSize(14);
+            $sheet->getStyle("A1:{$maxColLetter}1")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+
+            // 2. Sub-judul Periode
+            if ($periode) {
+                $sheet->mergeCells("A2:{$maxColLetter}2");
+                $sheet->setCellValue('A2', $periode);
+                $sheet->getStyle("A2:{$maxColLetter}2")->getFont()->setItalic(true)->setSize(11);
+                $sheet->getStyle("A2:{$maxColLetter}2")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+            }
+
+            // 3. Headers Laporan
+            $headerRow = 4;
+            foreach ($headers as $colIdx => $headerText) {
+                $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx + 1);
+                $sheet->setCellValue("{$colLetter}{$headerRow}", $headerText);
+            }
+
+            // Styling Header
+            $sheet->getStyle("A{$headerRow}:{$maxColLetter}{$headerRow}")->getFont()->setBold(true)->setSize(11);
+            $sheet->getStyle("A{$headerRow}:{$maxColLetter}{$headerRow}")->getAlignment()
+                ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+            
+            $sheet->getStyle("A{$headerRow}:{$maxColLetter}{$headerRow}")->getFill()
+                ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+                ->getStartColor()->setARGB('FFE2E8F0'); // Slate 200
+
+            // 4. Data Rows
+            $startDataRow = 5;
+            $currentRow = $startDataRow;
+            foreach ($rows as $rowData) {
+                foreach ($rowData as $colIdx => $val) {
+                    $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx + 1);
+                    $sheet->setCellValue("{$colLetter}{$currentRow}", $val);
+                }
+                $currentRow++;
+            }
+            $lastDataRow = $currentRow - 1;
+
+            // 5. Gridlines & Borders
+            $sheet->setShowGridlines(true);
+            $borderStyle = [
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN,
+                        'color' => ['argb' => 'FFCBD5E1'], // Slate 300
+                    ],
+                ],
+            ];
+            $sheet->getStyle("A{$headerRow}:{$maxColLetter}{$lastDataRow}")->applyFromArray($borderStyle);
+
+            // 6. Alignment & Formatting
+            for ($row = $startDataRow; $row <= $lastDataRow; $row++) {
+                for ($col = 1; $col <= $maxColIndex; $col++) {
+                    $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col);
+                    $cell = $sheet->getCell("{$colLetter}{$row}");
+                    $val = $cell->getValue();
+                    
+                    $alignment = \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER;
+                    
+                    // Kolom Nama Vendor (kolom 3) set left
+                    if ($col === 3) {
+                        $alignment = \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT;
+                    }
+                    
+                    $sheet->getStyle("{$colLetter}{$row}")->getAlignment()
+                        ->setHorizontal($alignment)
+                        ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+                }
+            }
+
+            // 7. Auto-fit Columns
+            for ($col = 1; $col <= $maxColIndex; $col++) {
+                $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col);
+                $sheet->getColumnDimension($colLetter)->setAutoSize(true);
+            }
+
+            // Set headers for file transfer
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment;filename="' . $filename . '"');
+            header('Cache-Control: max-age=0');
+
+            $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+            $writer->save('php://output');
+            exit;
+
+        } catch (\Exception $e) {
+            return $this->fail('Gagal mengekspor Excel: ' . $e->getMessage(), 500);
+        }
+    }
 }

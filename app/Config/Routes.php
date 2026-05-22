@@ -22,6 +22,7 @@ $routes->group('api', ['namespace' => 'App\Controllers\Api'], static function ($
     $routes->get('penilaian/evaluasi/detail', 'Penilaian::getDetailEvaluasi');
     $routes->post('penilaian/upload-ppic', 'Penilaian::uploadPpic');
     $routes->post('penilaian/upsert', 'Penilaian::upsert');
+    $routes->post('penilaian/export-excel', 'Penilaian::exportExcel');
 
     // 3. Custom Supplier endpoints (HARUS di atas resource)
     $routes->get('supplier/all', 'Supplier::allSuppliers');
