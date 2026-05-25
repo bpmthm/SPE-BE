@@ -33,6 +33,8 @@ $routes->group('api', ['namespace' => 'App\Controllers\Api'], static function ($
         // Custom Supplier endpoints
         $routes->get('supplier/all', 'Supplier::allSuppliers');
         $routes->get('supplier/get-qty', 'Supplier::getQtySap');
+        $routes->get('supplier/search-sap', 'Supplier::searchSap');
+        $routes->post('supplier/sync', 'Supplier::sync');
         $routes->post('supplier/toggle-status/(:num)', 'Supplier::toggleStatus/$1');
         $routes->get('supplier', 'Supplier::index');
         $routes->post('qcdaily', 'QcDaily::create');
