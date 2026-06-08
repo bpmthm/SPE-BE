@@ -26,6 +26,7 @@ $routes->group('api', ['namespace' => 'App\Controllers\Api'], static function ($
         $routes->get('penilaian/heatmap/data', 'Penilaian::heatmapData');
         $routes->get('penilaian/top-performers', 'Penilaian::topPerformers');
         $routes->get('penilaian/evaluasi/detail', 'Penilaian::getDetailEvaluasi');
+        $routes->get('penilaian/analisis/(:num)', 'Penilaian::analisis/$1');
         $routes->post('penilaian/upload-ppic', 'Penilaian::uploadPpic');
         $routes->post('penilaian/upsert', 'Penilaian::upsert');
         $routes->post('penilaian/export-excel', 'Penilaian::exportExcel');

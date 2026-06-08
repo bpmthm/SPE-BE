@@ -25,61 +25,84 @@ class PenilaianModel extends Model
     protected function calculateScores(array $data)
     {
         $existing = [];
-        if (isset($data['id'])) {
-            $id = is_array($data['id']) ? $data['id'][0] : $data['id'];
-            $existing = $this->db->table($this->table)->where('id', $id)->get()->getRowArray();
+        $supplierId = $data['data']['supplier_id'] ?? null;
+        $periode = $data['data']['periode'] ?? null;
+        if ($supplierId && $periode) {
+            $existing = $this->db->table($this->table)
+                ->where('supplier_id', $supplierId)
+                ->where('periode', $periode)
+                ->get()->getRowArray();
         }
 
         // --- QC ---
-        if (isset($data['data']['qc_qty_terima']) || isset($data['data']['qc_qty_reject'])) {
-            $terima = (int)($data['data']['qc_qty_terima'] ?? ($existing['qc_qty_terima'] ?? 0));
-            $reject = (int)($data['data']['qc_qty_reject'] ?? ($existing['qc_qty_reject'] ?? 0));
-            $totalQty = $terima + $reject;
-            
-            if ($totalQty > 0) {
-                $data['data']['qc_ng_percent'] = ($reject / $totalQty) * 100;
-            } else {
-                $data['data']['qc_ng_percent'] = 0;
-            }
-        }
+        $terima = isset($data['data']['qc_qty_terima']) ? $data['data']['qc_qty_terima'] : ($existing['qc_qty_terima'] ?? null);
+        $reject = isset($data['data']['qc_qty_reject']) ? $data['data']['qc_qty_reject'] : ($existing['qc_qty_reject'] ?? null);
 
-        if (array_key_exists('qc_ng_percent', $data['data'])) {
-            $ng = $data['data']['qc_ng_percent'];
-            $data['data']['qc_score'] = ($ng !== null) ? $this->getQCScore((float)$ng) : 0;
+        if ($terima !== null || $reject !== null) {
+            $terimaVal = (int)($terima ?? 0);
+            $rejectVal = (int)($reject ?? 0);
+            $totalQty = $terimaVal + $rejectVal;
+            $ngPercent = 0.0;
+            if ($totalQty > 0) {
+                $ngPercent = ($rejectVal / $totalQty) * 100;
+            }
+            $data['data']['qc_qty_terima'] = $terimaVal;
+            $data['data']['qc_qty_reject'] = $rejectVal;
+            $data['data']['qc_ng_percent'] = $ngPercent;
+            $data['data']['qc_score'] = $this->getQCScore($ngPercent);
+        } else {
+            $data['data']['qc_ng_percent'] = null;
+            $data['data']['qc_score'] = null;
         }
-        $qc = $data['data']['qc_score'] ?? ($existing['qc_score'] ?? 0);
+        $qc = $data['data']['qc_score'] ?? ($existing['qc_score'] ?? null);
 
         // --- PPIC ---
-        if (array_key_exists('ppic_ot_percent', $data['data'])) {
-            $ot = $data['data']['ppic_ot_percent'];
-            $data['data']['ppic_score'] = ($ot !== null) ? $this->getPPICScore((float)$ot) : 0;
+        $ot = isset($data['data']['ppic_ot_percent']) ? $data['data']['ppic_ot_percent'] : ($existing['ppic_ot_percent'] ?? null);
+        if ($ot !== null) {
+            $data['data']['ppic_ot_percent'] = (float)$ot;
+            $data['data']['ppic_score'] = $this->getPPICScore((float)$ot);
+        } else {
+            $data['data']['ppic_ot_percent'] = null;
+            $data['data']['ppic_score'] = null;
         }
-        $ppic = $data['data']['ppic_score'] ?? ($existing['ppic_score'] ?? 0);
+        $ppic = $data['data']['ppic_score'] ?? ($existing['ppic_score'] ?? null);
 
-        // --- PCH (UDAH DISESUAIKAN SAMA EXCEL) ---
-        if (isset($data['data']['pch_harga']) || isset($data['data']['pch_moq']) || isset($data['data']['pch_top']) || isset($data['data']['pch_pelayanan'])) {
+        // --- PCH ---
+        $pchHarga = isset($data['data']['pch_harga']) ? $data['data']['pch_harga'] : ($existing['pch_harga'] ?? null);
+        $pchMoq = isset($data['data']['pch_moq']) ? $data['data']['pch_moq'] : ($existing['pch_moq'] ?? null);
+        $pchTop = isset($data['data']['pch_top']) ? $data['data']['pch_top'] : ($existing['pch_top'] ?? null);
+        $pchPelayanan = isset($data['data']['pch_pelayanan']) ? $data['data']['pch_pelayanan'] : ($existing['pch_pelayanan'] ?? null);
+
+        if ($pchHarga !== null || $pchMoq !== null || $pchTop !== null || $pchPelayanan !== null) {
             $pchData = [
-                'pch_harga'     => $data['data']['pch_harga'] ?? ($existing['pch_harga'] ?? null),
-                'pch_moq'       => $data['data']['pch_moq'] ?? ($existing['pch_moq'] ?? null),
-                'pch_top'       => $data['data']['pch_top'] ?? ($existing['pch_top'] ?? null),
-                'pch_pelayanan' => $data['data']['pch_pelayanan'] ?? ($existing['pch_pelayanan'] ?? null),
+                'pch_harga'     => $pchHarga,
+                'pch_moq'       => $pchMoq,
+                'pch_top'       => $pchTop,
+                'pch_pelayanan' => $pchPelayanan
             ];
             $data['data']['pch_score'] = $this->getPCHScore($pchData);
+        } else {
+            $data['data']['pch_score'] = null;
         }
-        $pch = $data['data']['pch_score'] ?? ($existing['pch_score'] ?? 0);
+        $pch = $data['data']['pch_score'] ?? ($existing['pch_score'] ?? null);
 
         // --- HSE ---
-        if (isset($data['data']['hse_uji_emisi']) || isset($data['data']['hse_apd'])) {
+        $hseUjiEmisi = isset($data['data']['hse_uji_emisi']) ? $data['data']['hse_uji_emisi'] : ($existing['hse_uji_emisi'] ?? null);
+        $hseApd = isset($data['data']['hse_apd']) ? $data['data']['hse_apd'] : ($existing['hse_apd'] ?? null);
+
+        if ($hseUjiEmisi !== null || $hseApd !== null) {
             $hseData = [
-                'hse_uji_emisi' => $data['data']['hse_uji_emisi'] ?? ($existing['hse_uji_emisi'] ?? null),
-                'hse_apd'       => $data['data']['hse_apd'] ?? ($existing['hse_apd'] ?? null),
+                'hse_uji_emisi' => $hseUjiEmisi,
+                'hse_apd'       => $hseApd
             ];
             $data['data']['hse_score'] = $this->getHSEScore($hseData);
+        } else {
+            $data['data']['hse_score'] = null;
         }
-        $hse = $data['data']['hse_score'] ?? ($existing['hse_score'] ?? 0);
+        $hse = $data['data']['hse_score'] ?? ($existing['hse_score'] ?? null);
 
         // --- TOTAL & GRADE ---
-        $total = $qc + $ppic + $pch + $hse;
+        $total = (int)($qc ?? 0) + (int)($ppic ?? 0) + (int)($pch ?? 0) + (int)($hse ?? 0);
         $data['data']['total_score'] = $total;
         
         if ($total >= 90) $data['data']['grade'] = 'A'; // BAIK
