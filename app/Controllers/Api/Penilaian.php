@@ -415,8 +415,32 @@ class Penilaian extends ResourceController
                     'jenis_bahan'  => '-',
                     'data_aktual'  => [],
                     'rata_rata'    => null,
+                    'grafik'       => [],
+                    'insight'      => $this->generateSmartInsight([]),
                 ]);
             }
+
+            // Map data untuk grafik (Normalisasi ke 0-100% dan simpan skor asli)
+            $chartData = array_map(function($row) {
+                $totalScore = isset($row['total_score']) ? (int)$row['total_score'] : 0;
+                return [
+                    'periode'  => $row['periode'],
+                    
+                    // --- SKOR ASLI ---
+                    'qc_raw'    => isset($row['qc_score'])   ? (int)$row['qc_score']   : 0,
+                    'ppic_raw'  => isset($row['ppic_score']) ? (int)$row['ppic_score'] : 0,
+                    'pch_raw'   => isset($row['pch_score'])  ? (int)$row['pch_score']  : 0,
+                    'hse_raw'   => isset($row['hse_score'])  ? (int)$row['hse_score']  : 0,
+                    'total_raw' => $totalScore,
+
+                    // --- SKOR PERSENTASE (Normalisasi 0-100) ---
+                    'qc_pct'    => isset($row['qc_score'])   ? round(($row['qc_score'] / 30) * 100) : 0,
+                    'ppic_pct'  => isset($row['ppic_score']) ? round(($row['ppic_score'] / 30) * 100) : 0,
+                    'pch_pct'   => isset($row['pch_score'])  ? round(($row['pch_score'] / 25) * 100) : 0,
+                    'hse_pct'   => isset($row['hse_score'])  ? round(($row['hse_score'] / 10) * 100) : 0,
+                    'total_pct' => round(($totalScore / 95) * 100),
+                ];
+            }, $result['data_aktual']);
 
             return $this->respond([
                 'status'      => 'success',
@@ -424,6 +448,8 @@ class Penilaian extends ResourceController
                 'jenis_bahan' => $result['jenis_bahan'],
                 'data_aktual' => $result['data_aktual'],
                 'rata_rata'   => $result['rata_rata'],
+                'grafik'      => $chartData,
+                'insight'     => $this->generateSmartInsight($result['data_aktual']),
             ]);
 
         } catch (\Exception $e) {
@@ -655,5 +681,102 @@ class Penilaian extends ResourceController
             'weaknesses' => $weaknesses,
             'recommendation' => $recommendation
         ]);
+    }
+
+    /**
+     * Otak Pseudo-AI: Merangkai teks analitik berbasis aturan (Rule-Based Logic)
+     * dari data evaluasi multi-periode untuk satu vendor.
+     *
+     * @param array $dataEvaluasi Array of monthly evaluation rows
+     * @return array ['ringkasan' => string, 'anomali' => string, 'rekomendasi' => string]
+     */
+    private function generateSmartInsight(array $dataEvaluasi): array
+    {
+        if (empty($dataEvaluasi)) {
+            return [
+                'ringkasan'   => 'Belum ada data yang cukup untuk dianalisis.',
+                'anomali'     => '-',
+                'rekomendasi' => '-',
+            ];
+        }
+
+        $jmlBulan = count($dataEvaluasi);
+        $totalScoreSum = 0;
+
+        $anomaliQC   = [];
+        $anomaliPPIC = [];
+        $anomaliPCH  = [];
+        $anomaliHSE  = [];
+
+        $namaBulan = [
+            '01' => 'Januari', '02' => 'Februari', '03' => 'Maret',
+            '04' => 'April',   '05' => 'Mei',      '06' => 'Juni',
+            '07' => 'Juli',    '08' => 'Agustus',   '09' => 'September',
+            '10' => 'Oktober', '11' => 'November',  '12' => 'Desember',
+        ];
+
+        foreach ($dataEvaluasi as $row) {
+            $totalScoreSum += (float)($row['total_score'] ?? 0);
+
+            // Ekstrak nama bulan dari format YYYY-MM
+            $bulan = explode('-', $row['periode'])[1] ?? '00';
+            $teksBulan = $namaBulan[$bulan] ?? $bulan;
+
+            // Deteksi anomali per divisi (skor di bawah nilai maksimum)
+            $qc   = (int)($row['qc_score']   ?? 0);
+            $ppic = (int)($row['ppic_score']  ?? 0);
+            $pch  = (int)($row['pch_score']   ?? 0);
+            $hse  = (int)($row['hse_score']   ?? 0);
+
+            if ($qc < 30)  $anomaliQC[]   = $teksBulan . ' (skor ' . $qc . '/30)';
+            if ($ppic < 30) $anomaliPPIC[] = $teksBulan . ' (skor ' . $ppic . '/30)';
+            if ($pch < 20)  $anomaliPCH[]  = $teksBulan . ' (skor ' . $pch . '/25)';
+            if ($hse < 10)  $anomaliHSE[]  = $teksBulan . ' (skor ' . $hse . '/10)';
+        }
+
+        $avgTotal = round($totalScoreSum / $jmlBulan, 1);
+
+        //AI boongan:
+        $grade = 'C';
+        if ($avgTotal >= 90) $grade = 'A';
+        elseif ($avgTotal >= 70) $grade = 'B';
+
+        $ringkasan = "Selama periode evaluasi (<b>{$jmlBulan} bulan</b> tercatat), vendor ini mencetak rata-rata Total Score sebesar <b>{$avgTotal} (Grade {$grade})</b>.";
+
+        $teksAnomali = 'Secara keseluruhan vendor tampil <b>konsisten</b> di semua aspek penilaian.';
+        $kendala = [];
+        if (count($anomaliQC) > 0) {
+            $kendala[] = 'kualitas mutu (QC) pada bulan ' . implode(', ', $anomaliQC);
+        }
+        if (count($anomaliPPIC) > 0) {
+            $kendala[] = 'ketepatan pengiriman (PPIC) pada bulan ' . implode(', ', $anomaliPPIC);
+        }
+        if (count($anomaliPCH) > 0) {
+            $kendala[] = 'aspek purchasing (PCH) pada bulan ' . implode(', ', $anomaliPCH);
+        }
+        if (count($anomaliHSE) > 0) {
+            $kendala[] = 'kepatuhan K3/HSE pada bulan ' . implode(', ', $anomaliHSE);
+        }
+
+        if (count($kendala) > 0) {
+            $teksAnomali = 'Terdeteksi adanya penurunan performa pada aspek <b>' . implode('</b>, serta <b>', $kendala) . '</b>.';
+        }
+
+        // ── 3. Rangkai Teks Rekomendasi ──
+        if ($avgTotal >= 90 && count($kendala) === 0) {
+            $rekomendasi = 'Vendor berkinerja <b>sangat baik</b>. Sangat disarankan untuk mempertahankan dan meningkatkan volume Purchase Order (PO) karena konsistensi performanya.';
+        } elseif ($avgTotal >= 90 && count($kendala) > 0) {
+            $rekomendasi = 'Meski rata-rata skor tergolong <b>Grade A</b>, terdapat fluktuasi di beberapa bulan. Disarankan melakukan evaluasi ringan untuk menjaga stabilitas.';
+        } elseif (count($kendala) > 0) {
+            $rekomendasi = 'Manajemen disarankan untuk melakukan <b>audit logistik/mutu</b> bersama vendor terkait penurunan performa di bulan-bulan tersebut agar tidak menjadi tren negatif.';
+        } else {
+            $rekomendasi = 'Performa standar. Perlu <b>pemantauan rutin</b> untuk mendorong peningkatan nilai ke Grade A.';
+        }
+
+        return [
+            'ringkasan'   => $ringkasan,
+            'anomali'     => $teksAnomali,
+            'rekomendasi' => $rekomendasi,
+        ];
     }
 }

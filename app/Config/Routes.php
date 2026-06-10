@@ -43,7 +43,7 @@ $routes->group('api', ['namespace' => 'App\Controllers\Api'], static function ($
         // Resource routes
         $routes->resource('supplier', ['controller' => 'Supplier', 'except' => ['new', 'edit']]);
         $routes->resource('penilaian', ['controller' => 'Penilaian', 'except' => ['new', 'edit']]);
-        $routes->resource('qc-daily', ['controller' => 'QcDaily', 'only' => ['index', 'create']]);
+        $routes->resource('qc-daily', ['controller' => 'QcDaily', 'only' => ['index', 'create', 'update', 'delete']]);
         $routes->get('sap/materials', 'QcDaily::searchMaterials');
     });
 });

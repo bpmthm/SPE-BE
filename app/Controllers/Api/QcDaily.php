@@ -96,4 +96,67 @@ class QcDaily extends ResourceController
             return $this->fail('Gagal melakukan pencarian ke database SAP: ' . $e->getMessage());
         }
     }
+
+    /**
+     * PUT/PATCH /api/qc-daily/{id}
+     * Mengupdate data input harian di t_qc_daily
+     */
+    public function update($id = null)
+    {
+        $model = new QcDailyModel();
+        
+        // Cek apakah datanya ada di database
+        if (!$model->find($id)) {
+            return $this->failNotFound('Data tidak ditemukan');
+        }
+
+        $rules = [
+            'tanggal_terima' => 'required|valid_date[Y-m-d]',
+            'supplier_id'    => 'required|integer',
+            'no_surat_jalan' => 'required|min_length[1]|max_length[50]',
+            'material_code'  => 'required|min_length[1]|max_length[50]',
+            'material_desc'  => 'required|min_length[1]|max_length[255]',
+            'qty_masuk'      => 'required|integer|greater_than_equal_to[0]',
+            'qty_reject'     => 'required|integer|greater_than_equal_to[0]',
+        ];
+
+        // Ambil data dari request PUT
+        // Mendukung format JSON (frontend) maupun x-www-form-urlencoded
+        $data = $this->request->getJSON(true) ?: $this->request->getRawInput();
+
+        if (!$this->validate($rules)) {
+            return $this->fail($this->validator->getErrors());
+        }
+
+        // Jalankan proses update
+        if ($model->update($id, $data)) {
+            return $this->respond([
+                'status'  => 'success',
+                'message' => 'Data daily QC berhasil diperbarui'
+            ]);
+        }
+
+        return $this->fail('Gagal memperbarui data daily QC');
+    }
+
+    // Menghapus data input harian dari t_qc_daily
+    public function delete($id = null)
+    {
+        $model = new QcDailyModel();
+        
+        // Cek apakah datanya ada di database
+        if (!$model->find($id)) {
+            return $this->failNotFound('Data tidak ditemukan');
+        }
+
+        // Jalankan proses delete
+        if ($model->delete($id)) {
+            return $this->respondDeleted([
+                'status'  => 'success',
+                'message' => 'Data daily QC berhasil dihapus'
+            ]);
+        }
+
+        return $this->fail('Gagal menghapus data daily QC');
+    }
 }

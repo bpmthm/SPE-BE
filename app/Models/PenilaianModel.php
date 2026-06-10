@@ -235,4 +235,6 @@ class PenilaianModel extends Model
             'rata_rata'    => array_merge($avgRow ?? [], ['avg_grade' => $avgGrade]),
         ];
     }
+
+    
 }
