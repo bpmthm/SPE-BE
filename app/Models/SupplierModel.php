@@ -15,6 +15,7 @@ class SupplierModel extends Model
     // Jembatan buat narik total QTY dari SAP
     public function getQtyFromSAP($kode_vendor, $bulan, $tahun) {
         try {
+            ini_set('sqlsrv.ConnectTimeout', 5);
             // Panggil koneksi ke-2 yang tadi kita bikin di Database.php
             $dbSap = \Config\Database::connect('sap');
             

@@ -33,8 +33,11 @@ class JwtFilter implements FilterInterface
         }
 
         try {
-            // Secret Key ini HARUS SAMA kayak yang dipake pas bikin token (nanti taro di .env)
-            $key = getenv('JWT_SECRET_KEY') ?: 'ChitosePortalSPESecretJWTKey2026!';
+            // Secret Key ini HARUS SAMA kayak yang dipake pas bikin token (diambil dari .env)
+            $key = env('JWT_SECRET_KEY');
+            if (empty($key)) {
+                throw new \RuntimeException('JWT_SECRET_KEY is not configured in .env');
+            }
             
             // Verifikasi token
             $decoded = JWT::decode($token, new Key($key, 'HS256'));

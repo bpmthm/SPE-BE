@@ -14,7 +14,10 @@ class Auth extends BaseController
         $role = $this->request->getVar('role') ?? 'PCH';
         $nik = $this->request->getVar('nik') ?? '123456';
 
-        $key = getenv('JWT_SECRET_KEY') ?: 'ChitosePortalSPESecretJWTKey2026!';
+        $key = env('JWT_SECRET_KEY');
+        if (empty($key)) {
+            throw new \RuntimeException('JWT_SECRET_KEY is not configured in .env');
+        }
         
         $payload = [
             'iss'  => 'ChitosePortal',

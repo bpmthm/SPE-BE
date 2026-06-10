@@ -19,14 +19,73 @@ class QcDaily extends ResourceController
      */
     public function index()
     {
-        $db = \Config\Database::connect();
-        $builder = $db->table('t_qc_daily q');
-        $builder->select('q.*, s.nama_vendor, s.kode_vendor');
-        $builder->join('m_supplier s', 'q.supplier_id = s.id', 'left');
-        $builder->orderBy('q.id', 'DESC');
-        $results = $builder->get()->getResultArray();
+        $limit = $this->request->getGet('limit') ? (int) $this->request->getGet('limit') : 25;
+        $page  = $this->request->getGet('page') ? (int) $this->request->getGet('page') : 1;
+        if ($page < 1) $page = 1;
+        if ($limit < 1) $limit = 25;
+        $offset = ($page - 1) * $limit;
 
-        return $this->respond($results);
+        $search = $this->request->getGet('search');
+        $bulan  = $this->request->getGet('bulan');
+
+        $db = \Config\Database::connect();
+        
+        $buildQuery = function() use ($db, $search, $bulan) {
+            $builder = $db->table('t_qc_daily q');
+            $builder->join('m_supplier s', 'q.supplier_id = s.id', 'left');
+            
+            if (!empty($search)) {
+                $builder->groupStart()
+                        ->like('s.nama_vendor', $search)
+                        ->orLike('s.kode_vendor', $search)
+                        ->orLike('q.material_desc', $search)
+                        ->orLike('q.material_code', $search)
+                        ->orLike('q.no_surat_jalan', $search)
+                        ->groupEnd();
+            }
+            
+            if (!empty($bulan)) {
+                $builder->like('q.tanggal_terima', $bulan, 'after');
+            }
+            
+            return $builder;
+        };
+
+        // 1. Dapatkan statisktik dari dataset yang difilter
+        $statsBuilder = $buildQuery();
+        $statsBuilder->selectCount('q.id', 'total_penerimaan');
+        $statsBuilder->selectSum('q.qty_masuk', 'total_qty_masuk');
+        $statsBuilder->selectSum('q.qty_reject', 'total_qty_reject');
+        $stats = $statsBuilder->get()->getRowArray();
+
+        $totalPenerimaan = (int) ($stats['total_penerimaan'] ?? 0);
+        $totalQtyMasuk   = (int) ($stats['total_qty_masuk'] ?? 0);
+        $totalQtyReject  = (int) ($stats['total_qty_reject'] ?? 0);
+        $ngRate = $totalQtyMasuk > 0 ? ($totalQtyReject / $totalQtyMasuk) * 100 : 0;
+
+        // 2. Ambil data per halaman
+        $dataBuilder = $buildQuery();
+        $dataBuilder->select('q.*, s.nama_vendor, s.kode_vendor');
+        $dataBuilder->orderBy('q.id', 'DESC');
+        $dataBuilder->limit($limit, $offset);
+        $results = $dataBuilder->get()->getResultArray();
+
+        return $this->respond([
+            'status' => 'success',
+            'data'   => $results,
+            'pagination' => [
+                'total'       => $totalPenerimaan,
+                'limit'       => $limit,
+                'page'        => $page,
+                'total_pages' => ceil($totalPenerimaan / $limit)
+            ],
+            'stats' => [
+                'total_penerimaan' => $totalPenerimaan,
+                'qty_masuk'        => $totalQtyMasuk,
+                'qty_reject'       => $totalQtyReject,
+                'ng_rate'          => $ngRate
+            ]
+        ]);
     }
 
     /**
@@ -75,6 +134,7 @@ class QcDaily extends ResourceController
         }
 
         try {
+            ini_set('sqlsrv.ConnectTimeout', 5);
             $dbSap = \Config\Database::connect('sap');
             $builder = $dbSap->table('TBL_MATERIAL');
             

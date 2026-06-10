@@ -135,6 +135,7 @@ class Supplier extends ResourceController
         }
 
         try {
+            ini_set('sqlsrv.ConnectTimeout', 5);
             $dbSap = \Config\Database::connect('sap');
             // Kolom aktual di SQL Server SAP: NO_VENDOR, NAMA_VENDOR
             // Di-alias agar frontend (master-vendor.js) tidak perlu berubah
