@@ -10,7 +10,7 @@ class SupplierModel extends Model
     protected $primaryKey       = 'id';
     
     // WAJIB: Tambahin is_active di sini!
-    protected $allowedFields    = ['kode_vendor', 'nama_vendor', 'jenis_bahan', 'is_active'];
+    protected $allowedFields    = ['kode_vendor', 'nama_vendor', 'jenis_bahan', 'is_active', 'top_days'];
 
     // Jembatan buat narik total QTY dari SAP
     public function getQtyFromSAP($kode_vendor, $bulan, $tahun) {

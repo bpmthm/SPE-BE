@@ -73,6 +73,27 @@ class Penilaian extends ResourceController
             }
         }
 
+        // ─── 🛠️ OTOMATISASI GENERATE NILAI TOP VENDOR ───
+        try {
+            $supplierId = $filteredJson['supplier_id'] ?? ($json['supplier_id'] ?? null);
+            if ($supplierId) {
+                $supplierModel = new \App\Models\SupplierModel();
+                $supplier = $supplierModel->find($supplierId);
+                if ($supplier) {
+                    $topDays = isset($supplier['top_days']) ? (int)$supplier['top_days'] : 0;
+                    $pchTopStatus = 'KURANG'; // Default < 30 hari
+                    if ($topDays >= 60) {
+                        $pchTopStatus = 'BAIK';
+                    } elseif ($topDays >= 30) {
+                        $pchTopStatus = 'CUKUP';
+                    }
+                    $filteredJson['pch_top'] = $pchTopStatus;
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', '[Penilaian::upsert] Auto-calculate TOP failed: ' . $e->getMessage());
+        }
+
         $existing = $this->model->where('supplier_id', $filteredJson['supplier_id'])->where('periode', $filteredJson['periode'])->first();
 
         try {
